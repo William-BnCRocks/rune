@@ -25,6 +25,47 @@ fn hwnd(window: &winit::window::Window) -> Option<HWND> {
     Some(h.hwnd.get() as HWND)
 }
 
+/// Clear the GDI redirection surface under a transparent GPU swapchain.
+/// Windows may leave old non-client pixels there after a show or resize; they
+/// otherwise remain visible through the swapchain's translucent pixels.
+pub(crate) fn clear_transparent_backing(window: &winit::window::Window) {
+    if let Some(hwnd) = hwnd(window) { clear_backing(hwnd); }
+}
+
+fn clear_backing(hwnd: HWND) {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{GetDC, PatBlt, ReleaseDC, BLACKNESS};
+    unsafe {
+        let mut rect: RECT = std::mem::zeroed();
+        if GetClientRect(hwnd, &mut rect) == 0 { return; }
+        let dc = GetDC(hwnd);
+        if dc.is_null() { return; }
+        PatBlt(dc, 0, 0, rect.right - rect.left, rect.bottom - rect.top, BLACKNESS);
+        ReleaseDC(hwnd, dc);
+    }
+}
+
+// Windows can repaint the old non-client backing when activation changes,
+// even after winit has made the client borderless. Clear it after the default
+// procedure paints, so those pixels cannot show through the GPU surface.
+unsafe extern "system" fn transparent_backing_subclass(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, id: usize, _: usize) -> LRESULT {
+    let result = unsafe { DefSubclassProc(hwnd, msg, wp, lp) };
+    match msg {
+        WM_NCACTIVATE | WM_NCPAINT => clear_backing(hwnd),
+        WM_NCDESTROY => { unsafe { RemoveWindowSubclass(hwnd, Some(transparent_backing_subclass), id); } }
+        _ => {}
+    }
+    result
+}
+
+pub(crate) fn watch_transparent_backing(window: &winit::window::Window) {
+    if let Some(hwnd) = hwnd(window) {
+        if unsafe { SetWindowSubclass(hwnd, Some(transparent_backing_subclass), 0x52544247, 0) } == 0 {
+            eprintln!("Rune: failed to watch transparent window backing: {}", last_error());
+        }
+    }
+}
+
 pub(crate) fn pointer_position() -> Option<(i32, i32)> {
     let mut p = POINT { x: 0, y: 0 };
     (unsafe { GetCursorPos(&mut p) } != 0).then_some((p.x, p.y))

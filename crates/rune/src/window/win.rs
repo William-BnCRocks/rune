@@ -51,6 +51,10 @@ impl Win {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(device, &self.config);
+        #[cfg(target_os = "windows")]
+        if self.config.alpha_mode != wgpu::CompositeAlphaMode::Opaque {
+            crate::platform::win32::clear_transparent_backing(&self.window);
+        }
         if let Some(alpha) = &mut self.alpha { alpha.resize(device, (width, height)); }
         #[cfg(target_os = "macos")]
         if let Some(shadow) = &self.native.shadow { shadow.redraw(); }
@@ -223,6 +227,10 @@ impl Win {
             self.window.request_redraw();
         }
         self.window.set_visible(true);
+        #[cfg(target_os = "windows")]
+        if self.config.alpha_mode != wgpu::CompositeAlphaMode::Opaque {
+            crate::platform::win32::clear_transparent_backing(&self.window);
+        }
         if focus { self.window.focus_window(); }
     }
 

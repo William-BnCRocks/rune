@@ -769,6 +769,8 @@ impl<S: 'static> Host<S> {
         let attrs = attrs.with_visible(false);
         let window = Arc::new(event_loop.create_window(attrs).map_err(|e| e.to_string())?);
         #[cfg(target_os = "windows")]
+        if self.options.transparent { crate::platform::win32::watch_transparent_backing(&window); }
+        #[cfg(target_os = "windows")]
         crate::platform::win32::follow_suggested_rect(&window);
         #[cfg(target_os = "windows")]
         let cloak = crate::platform::win32::Cloak::default();
@@ -776,6 +778,7 @@ impl<S: 'static> Host<S> {
         if visible {
             cloak.hold(&window, Instant::now() + win::READY_FALLBACK);
             window.set_visible(true);
+            if self.options.transparent { crate::platform::win32::clear_transparent_backing(&window); }
         }
         // First, before anything observes the view (macOS) or an assistive client asks.
         let a11y = {
